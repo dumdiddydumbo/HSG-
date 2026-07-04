@@ -127,7 +127,8 @@
     color: var(--muted);
   }
 
-  .set-date input {
+  .set-date input,
+  .set-date select {
     background: rgba(251,243,236,0.1);
     border: 1px solid rgba(251,243,236,0.3);
     color: var(--cream);
@@ -343,8 +344,11 @@
       <div class="no-date">No date set yet</div>
     </div>
     <div class="set-date">
-      <label for="nextDateInput">Set next date:</label>
+      <label for="nextDateInput">Next date:</label>
       <input type="datetime-local" id="nextDateInput">
+      <select id="nextDateWithSelect">
+        <option value=""></option>
+      </select>
     </div>
   </div>
 
@@ -355,21 +359,23 @@
 
 <script>
   // Shared storage: everyone who opens this file reads/writes the same bucket,
-  // so all 6 of you see the same live numbers.
-  const BUCKET_URL = 'https://kvdb.io/bfdb9dc8bddaf8871e1520b3/hsg-dates-2026';
+  // so all 6 of you see the same live numbers. Each person + the next date is
+  // stored under its own key (kvdb.io limits each value to 16KB, so keeping
+  // photos separate per-person avoids ever hitting that limit).
+  const BUCKET_ID = '4tKZHSSsBGwMD9tg5JyCkT';
+  const BASE_URL = 'https://kvdb.io/' + BUCKET_ID;
   const defaultNames = ['Person 1','Person 2','Person 3','Person 4','Person 5','Person 6'];
   const POLL_MS = 4000;
 
   function defaultState() {
     return {
       nextDate: null,
-      people: defaultNames.map(name => ({ name, count: 0, emoji: '', photo: null })),
-      updatedAt: 0
+      nextDateWith: '',
+      people: defaultNames.map(name => ({ name, count: 0, emoji: '', photo: null, updatedAt: 0 }))
     };
   }
 
   let state = defaultState();
-  let lastLocalEdit = 0;
   let isEditingText = false;
 
   function setSyncStatus(mode) {
@@ -379,43 +385,80 @@
     text.textContent = mode === 'syncing' ? 'Syncing…' : mode === 'error' ? 'Offline — changes saved locally' : 'Synced with everyone';
   }
 
+  async function getKey(key) {
+    const res = await fetch(BASE_URL + '/' + key + '?t=' + Date.now());
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error('get failed: ' + key);
+    return res.text();
+  }
+
+  async function setKey(key, value) {
+    const res = await fetch(BASE_URL + '/' + key, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'text/plain' },
+      body: value
+    });
+    if (!res.ok) throw new Error('set failed: ' + key);
+  }
+
   async function fetchState() {
+    const activeIsField = document.activeElement && document.activeElement.tagName === 'INPUT';
+    if (activeIsField || isEditingText) return; // never fetch mid-edit
+
+    setSyncStatus('syncing');
     try {
-      const res = await fetch(BUCKET_URL + '?t=' + Date.now());
-      if (res.status === 404) {
-        // Bucket/key doesn't exist yet — first person to open this creates it
-        await pushState();
-        return;
-      }
-      if (!res.ok) throw new Error('fetch failed');
-      const text = await res.text();
-      const remote = JSON.parse(text);
-      // Never touch the DOM while the person is actively focused in any field —
-      // this prevents a background sync from stealing focus mid-keystroke.
-      const activeIsField = document.activeElement && (
-        document.activeElement.tagName === 'INPUT'
-      );
-      if (!activeIsField && !isEditingText && remote.updatedAt > state.updatedAt) {
-        state = remote;
-        renderGrid();
-        renderCountdown();
-        syncDateInput();
-      }
+      const keys = [0,1,2,3,4,5].map(i => 'person' + i);
+      const results = await Promise.all(keys.map(k => getKey(k)));
+      const nextDateRaw = await getKey('nextDate');
+      const nextDateWithRaw = await getKey('nextDateWith');
+
+      results.forEach((raw, i) => {
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            if ((parsed.updatedAt || 0) >= (state.people[i].updatedAt || 0)) {
+              state.people[i] = parsed;
+            }
+          } catch (e) {}
+        }
+      });
+      if (nextDateRaw !== null) state.nextDate = nextDateRaw || null;
+      if (nextDateWithRaw !== null) state.nextDateWith = nextDateWithRaw || '';
+
+      renderGrid();
+      renderCountdown();
+      syncDateInput();
       setSyncStatus('ok');
     } catch (e) {
       setSyncStatus('error');
     }
   }
 
-  async function pushState() {
-    state.updatedAt = Date.now();
+  async function pushPerson(i) {
+    state.people[i].updatedAt = Date.now();
     setSyncStatus('syncing');
     try {
-      await fetch(BUCKET_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify(state)
-      });
+      await setKey('person' + i, JSON.stringify(state.people[i]));
+      setSyncStatus('ok');
+    } catch (e) {
+      setSyncStatus('error');
+    }
+  }
+
+  async function pushNextDate() {
+    setSyncStatus('syncing');
+    try {
+      await setKey('nextDate', state.nextDate || '');
+      setSyncStatus('ok');
+    } catch (e) {
+      setSyncStatus('error');
+    }
+  }
+
+  async function pushNextDateWith() {
+    setSyncStatus('syncing');
+    try {
+      await setKey('nextDateWith', state.nextDateWith || '');
       setSyncStatus('ok');
     } catch (e) {
       setSyncStatus('error');
@@ -426,6 +469,13 @@
     const dateInput = document.getElementById('nextDateInput');
     if (document.activeElement !== dateInput) {
       dateInput.value = state.nextDate || '';
+    }
+    const withSelect = document.getElementById('nextDateWithSelect');
+    if (document.activeElement !== withSelect) {
+      const names = state.people.map(p => p.name);
+      withSelect.innerHTML = '<option value=""></option>' +
+        names.map(n => `<option value="${n}">${n}</option>`).join('');
+      withSelect.value = state.nextDateWith || '';
     }
   }
 
@@ -469,7 +519,7 @@
         } else {
           state.people[idx].count = Math.max(0, state.people[idx].count - 1);
         }
-        pushState();
+        pushPerson(idx);
         renderGrid();
       });
     });
@@ -479,7 +529,8 @@
       input.addEventListener('blur', () => isEditingText = false);
       input.addEventListener('change', () => {
         state.people[i].name = input.value || defaultNames[i];
-        pushState();
+        pushPerson(i);
+        syncDateInput();
       });
     });
 
@@ -488,7 +539,7 @@
       input.addEventListener('blur', () => isEditingText = false);
       input.addEventListener('change', () => {
         state.people[i].emoji = input.value;
-        pushState();
+        pushPerson(i);
       });
     });
 
@@ -505,9 +556,9 @@
       fileInput.addEventListener('change', (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        compressImage(file, 160, 160, (dataUrl) => {
+        compressImage(file, 140, 140, (dataUrl) => {
           state.people[i].photo = dataUrl;
-          pushState();
+          pushPerson(i);
           renderGrid();
         });
       });
@@ -532,7 +583,7 @@
         const input = document.getElementById(`emoji-${idx}`);
         input.value = (input.value || '') + b.dataset.emoji;
         state.people[idx].emoji = input.value;
-        pushState();
+        pushPerson(idx);
         panel.remove();
         openPanel = null;
       });
@@ -541,7 +592,7 @@
       const input = document.getElementById(`emoji-${idx}`);
       input.value = '';
       state.people[idx].emoji = '';
-      pushState();
+      pushPerson(idx);
       panel.remove();
       openPanel = null;
     });
@@ -561,7 +612,8 @@
     }, 0);
   }
 
-  // Shrinks photos to keep the shared file small and fast for everyone
+  // Shrinks photos to keep each stored value safely under kvdb's 16KB-per-key limit.
+  // Steps quality down until the encoded image is comfortably small.
   function compressImage(file, maxW, maxH, callback) {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -575,7 +627,14 @@
         canvas.width = w;
         canvas.height = h;
         canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-        callback(canvas.toDataURL('image/jpeg', 0.7));
+
+        let quality = 0.7;
+        let dataUrl = canvas.toDataURL('image/jpeg', quality);
+        while (dataUrl.length > 12000 && quality > 0.2) {
+          quality -= 0.1;
+          dataUrl = canvas.toDataURL('image/jpeg', quality);
+        }
+        callback(dataUrl);
       };
       img.src = e.target.result;
     };
@@ -584,8 +643,12 @@
 
   function renderCountdown() {
     const display = document.getElementById('countdownDisplay');
+    const withLabel = state.nextDateWith
+      ? `<div style="font-size:13px; color: var(--blush); margin-top: -6px; margin-bottom: 14px;">with ${state.nextDateWith}</div>`
+      : '';
+
     if (!state.nextDate) {
-      display.innerHTML = `<div class="no-date">No date set yet</div>`;
+      display.innerHTML = `${withLabel}<div class="no-date">No date set yet</div>`;
       return;
     }
 
@@ -594,7 +657,7 @@
     const diff = target - now;
 
     if (diff <= 0) {
-      display.innerHTML = `<div class="no-date">It's date day! 🎉</div>`;
+      display.innerHTML = `<div class="no-date">It's date day! 🎉</div>${withLabel}`;
       return;
     }
 
@@ -604,6 +667,7 @@
     const seconds = Math.floor((diff / 1000) % 60);
 
     display.innerHTML = `
+      ${withLabel}
       <div class="countdown-numbers">
         <div><div class="num">${days}</div><div class="unit">Days</div></div>
         <div><div class="num">${hours}</div><div class="unit">Hrs</div></div>
@@ -618,12 +682,22 @@
   dateInput.addEventListener('blur', () => isEditingText = false);
   dateInput.addEventListener('change', () => {
     state.nextDate = dateInput.value;
-    pushState();
+    pushNextDate();
+    renderCountdown();
+  });
+
+  const withSelect = document.getElementById('nextDateWithSelect');
+  withSelect.addEventListener('focus', () => isEditingText = true);
+  withSelect.addEventListener('blur', () => isEditingText = false);
+  withSelect.addEventListener('change', () => {
+    state.nextDateWith = withSelect.value;
+    pushNextDateWith();
     renderCountdown();
   });
 
   renderGrid();
   renderCountdown();
+  syncDateInput();
   fetchState();
   setInterval(renderCountdown, 1000);
   setInterval(fetchState, POLL_MS);
