@@ -358,10 +358,10 @@
 </div>
 
 <script>
-  // Shared storage: everyone who opens this file reads/writes the same JSON
-  // Blob document, so all 6 of you see the same live numbers.
-  const BLOB_ID = '019f2f11-3f8f-7e4f-b537-bac65cc71ac8';
-  const BLOB_URL = 'https://jsonblob.com/api/jsonBlob/' + BLOB_ID;
+  // Shared storage: everyone who opens this file reads/writes the same Firebase
+  // Realtime Database node, so all 6 of you see the same live numbers.
+  const DB_URL = 'https://hsgd-9d58c-default-rtdb.firebaseio.com/';
+  const DATA_URL = DB_URL + 'hsgdates.json';
   const defaultNames = ['Person 1','Person 2','Person 3','Person 4','Person 5','Person 6'];
   const POLL_MS = 5000;
 
@@ -390,10 +390,13 @@
 
     setSyncStatus('syncing');
     try {
-      const res = await fetch(BLOB_URL + '?t=' + Date.now());
+      const res = await fetch(DATA_URL + '?t=' + Date.now());
       if (!res.ok) throw new Error('fetch failed');
       const remote = await res.json();
-      if ((remote.updatedAt || 0) > (state.updatedAt || 0)) {
+      if (remote === null) {
+        // Nothing saved yet — initialize it with our current (default) state
+        await pushState();
+      } else if ((remote.updatedAt || 0) > (state.updatedAt || 0)) {
         state = remote;
         renderGrid();
         renderCountdown();
@@ -409,7 +412,7 @@
     state.updatedAt = Date.now();
     setSyncStatus('syncing');
     try {
-      const res = await fetch(BLOB_URL, {
+      const res = await fetch(DATA_URL, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(state)
