@@ -394,7 +394,7 @@
 
   async function setKey(key, value) {
     const res = await fetch(BASE_URL + '/' + key, {
-      method: 'PUT',
+      method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: value
     });
