@@ -358,20 +358,19 @@
 </div>
 
 <script>
-  // Shared storage: everyone who opens this file reads/writes the same bucket,
-  // so all 6 of you see the same live numbers. Each person + the next date is
-  // stored under its own key (kvdb.io limits each value to 16KB, so keeping
-  // photos separate per-person avoids ever hitting that limit).
-  const BUCKET_ID = '4tKZHSSsBGwMD9tg5JyCkT';
-  const BASE_URL = 'https://kvdb.io/' + BUCKET_ID;
+  // Shared storage: everyone who opens this file reads/writes the same JSON
+  // Blob document, so all 6 of you see the same live numbers.
+  const BLOB_ID = '019f2f11-3f8f-7e4f-b537-bac65cc71ac8';
+  const BLOB_URL = 'https://jsonblob.com/api/jsonBlob/' + BLOB_ID;
   const defaultNames = ['Person 1','Person 2','Person 3','Person 4','Person 5','Person 6'];
-  const POLL_MS = 4000;
+  const POLL_MS = 5000;
 
   function defaultState() {
     return {
+      updatedAt: 0,
       nextDate: null,
       nextDateWith: '',
-      people: defaultNames.map(name => ({ name, count: 0, emoji: '', photo: null, updatedAt: 0 }))
+      people: defaultNames.map(name => ({ name, count: 0, emoji: '', photo: null }))
     };
   }
 
@@ -385,80 +384,37 @@
     text.textContent = mode === 'syncing' ? 'Syncing…' : mode === 'error' ? 'Offline — changes saved locally' : 'Synced with everyone';
   }
 
-  async function getKey(key) {
-    const res = await fetch(BASE_URL + '/' + key + '?t=' + Date.now());
-    if (res.status === 404) return null;
-    if (!res.ok) throw new Error('get failed: ' + key);
-    return res.text();
-  }
-
-  async function setKey(key, value) {
-    const res = await fetch(BASE_URL + '/' + key, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: value
-    });
-    if (!res.ok) throw new Error('set failed: ' + key);
-  }
-
   async function fetchState() {
     const activeIsField = document.activeElement && document.activeElement.tagName === 'INPUT';
     if (activeIsField || isEditingText) return; // never fetch mid-edit
 
     setSyncStatus('syncing');
     try {
-      const keys = [0,1,2,3,4,5].map(i => 'person' + i);
-      const results = await Promise.all(keys.map(k => getKey(k)));
-      const nextDateRaw = await getKey('nextDate');
-      const nextDateWithRaw = await getKey('nextDateWith');
+      const res = await fetch(BLOB_URL + '?t=' + Date.now());
+      if (!res.ok) throw new Error('fetch failed');
+      const remote = await res.json();
+      if ((remote.updatedAt || 0) > (state.updatedAt || 0)) {
+        state = remote;
+        renderGrid();
+        renderCountdown();
+        syncDateInput();
+      }
+      setSyncStatus('ok');
+    } catch (e) {
+      setSyncStatus('error');
+    }
+  }
 
-      results.forEach((raw, i) => {
-        if (raw) {
-          try {
-            const parsed = JSON.parse(raw);
-            if ((parsed.updatedAt || 0) >= (state.people[i].updatedAt || 0)) {
-              state.people[i] = parsed;
-            }
-          } catch (e) {}
-        }
+  async function pushState() {
+    state.updatedAt = Date.now();
+    setSyncStatus('syncing');
+    try {
+      const res = await fetch(BLOB_URL, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(state)
       });
-      if (nextDateRaw !== null) state.nextDate = nextDateRaw || null;
-      if (nextDateWithRaw !== null) state.nextDateWith = nextDateWithRaw || '';
-
-      renderGrid();
-      renderCountdown();
-      syncDateInput();
-      setSyncStatus('ok');
-    } catch (e) {
-      setSyncStatus('error');
-    }
-  }
-
-  async function pushPerson(i) {
-    state.people[i].updatedAt = Date.now();
-    setSyncStatus('syncing');
-    try {
-      await setKey('person' + i, JSON.stringify(state.people[i]));
-      setSyncStatus('ok');
-    } catch (e) {
-      setSyncStatus('error');
-    }
-  }
-
-  async function pushNextDate() {
-    setSyncStatus('syncing');
-    try {
-      await setKey('nextDate', state.nextDate || '');
-      setSyncStatus('ok');
-    } catch (e) {
-      setSyncStatus('error');
-    }
-  }
-
-  async function pushNextDateWith() {
-    setSyncStatus('syncing');
-    try {
-      await setKey('nextDateWith', state.nextDateWith || '');
+      if (!res.ok) throw new Error('push failed');
       setSyncStatus('ok');
     } catch (e) {
       setSyncStatus('error');
@@ -519,7 +475,7 @@
         } else {
           state.people[idx].count = Math.max(0, state.people[idx].count - 1);
         }
-        pushPerson(idx);
+        pushState();
         renderGrid();
       });
     });
@@ -529,7 +485,7 @@
       input.addEventListener('blur', () => isEditingText = false);
       input.addEventListener('change', () => {
         state.people[i].name = input.value || defaultNames[i];
-        pushPerson(i);
+        pushState();
         syncDateInput();
       });
     });
@@ -539,7 +495,7 @@
       input.addEventListener('blur', () => isEditingText = false);
       input.addEventListener('change', () => {
         state.people[i].emoji = input.value;
-        pushPerson(i);
+        pushState();
       });
     });
 
@@ -558,7 +514,7 @@
         if (!file) return;
         compressImage(file, 140, 140, (dataUrl) => {
           state.people[i].photo = dataUrl;
-          pushPerson(i);
+          pushState();
           renderGrid();
         });
       });
@@ -583,7 +539,7 @@
         const input = document.getElementById(`emoji-${idx}`);
         input.value = (input.value || '') + b.dataset.emoji;
         state.people[idx].emoji = input.value;
-        pushPerson(idx);
+        pushState();
         panel.remove();
         openPanel = null;
       });
@@ -592,7 +548,7 @@
       const input = document.getElementById(`emoji-${idx}`);
       input.value = '';
       state.people[idx].emoji = '';
-      pushPerson(idx);
+      pushState();
       panel.remove();
       openPanel = null;
     });
@@ -682,7 +638,7 @@
   dateInput.addEventListener('blur', () => isEditingText = false);
   dateInput.addEventListener('change', () => {
     state.nextDate = dateInput.value;
-    pushNextDate();
+    pushState();
     renderCountdown();
   });
 
@@ -691,7 +647,7 @@
   withSelect.addEventListener('blur', () => isEditingText = false);
   withSelect.addEventListener('change', () => {
     state.nextDateWith = withSelect.value;
-    pushNextDateWith();
+    pushState();
     renderCountdown();
   });
 
