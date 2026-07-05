@@ -477,6 +477,14 @@
     'Graduated': '🎓'
   };
 
+  const STATUS_SCORE = {
+    'Lost cause': 0,
+    'Single': 25,
+    'Its complicated': 50,
+    'Taken': 75,
+    'Graduated': 100
+  };
+
   function renderSummary() {
     const grid = document.getElementById('summaryGrid');
 
@@ -491,7 +499,9 @@
     state.people.forEach(p => { if (p.count > topPerson.count) topPerson = p; });
     const topLabel = topPerson.count > 0 ? topPerson.name : '—';
 
-    const avg = state.people.length ? (totalDates / state.people.length).toFixed(1) : '0';
+    const grade = state.people.length
+      ? Math.round(state.people.reduce((sum, p) => sum + (STATUS_SCORE[p.status || 'Single'] ?? 25), 0) / state.people.length)
+      : 0;
 
     const statusCounts = {};
     Object.keys(STATUS_ICONS).forEach(s => statusCounts[s] = 0);
@@ -509,8 +519,8 @@
     grid.innerHTML = `
       <div class="stat"><div class="stat-num">${totalDates}</div><div class="stat-label">Total dates</div></div>
       <div class="stat"><div class="stat-num">${spaghettiTotal}</div><div class="stat-label">🍝 Spaghetti count</div></div>
-      <div class="stat"><div class="stat-num">${topLabel}</div><div class="stat-label">Most active</div></div>
-      <div class="stat"><div class="stat-num">${avg}</div><div class="stat-label">Avg per person</div></div>
+      <div class="stat"><div class="stat-num">${topLabel}</div><div class="stat-label">Best in class</div></div>
+      <div class="stat"><div class="stat-num">${grade}%</div><div class="stat-label">Overall score</div></div>
       <div class="status-breakdown">${chips}</div>
     `;
 
