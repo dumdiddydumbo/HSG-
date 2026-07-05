@@ -72,78 +72,78 @@
   .sync-dot.syncing { background: var(--gold); }
   .sync-dot.error { background: #C46A5A; }
 
-  /* --- Countdown --- */
-  .countdown {
+  /* --- Summary box --- */
+  .summary-box {
     margin: 30px auto 0;
-    max-width: 560px;
+    max-width: 640px;
     background: var(--plum);
     color: var(--cream);
     border-radius: 18px;
     padding: 28px 32px;
     text-align: center;
-    position: relative;
   }
 
-  .countdown .label {
-    font-size: 13px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
+  .ndb-title {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 15px;
     color: var(--gold);
-    margin-bottom: 14px;
+    margin-bottom: 20px;
   }
 
-  .countdown-numbers {
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 18px;
+    margin-bottom: 20px;
+  }
+
+  .stat {
     display: flex;
-    justify-content: center;
-    gap: 24px;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
   }
 
-  .countdown-numbers div {
-    min-width: 60px;
-  }
-
-  .countdown-numbers .num {
+  .stat-num {
     font-family: 'Fraunces', serif;
     font-weight: 700;
-    font-size: 38px;
+    font-size: 30px;
     line-height: 1;
   }
 
-  .countdown-numbers .unit {
+  .stat-label {
     font-size: 11px;
-    letter-spacing: 0.08em;
     text-transform: uppercase;
+    letter-spacing: 0.06em;
     color: var(--blush);
-    margin-top: 6px;
+    text-align: center;
   }
 
-  .set-date {
-    margin-top: 18px;
+  .status-breakdown {
+    grid-column: 1 / -1;
     display: flex;
     justify-content: center;
-    align-items: center;
-    gap: 10px;
-    font-size: 13px;
-    color: var(--muted);
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 4px;
   }
 
-  .set-date input,
-  .set-date select {
+  .status-chip {
+    font-size: 12px;
+    padding: 5px 12px;
+    border-radius: 20px;
     background: rgba(251,243,236,0.1);
-    border: 1px solid rgba(251,243,236,0.3);
-    color: var(--cream);
-    border-radius: 6px;
-    padding: 6px 10px;
-    font-family: 'Work Sans', sans-serif;
-    font-size: 13px;
-    color-scheme: dark;
   }
 
-  .no-date {
+  .summary-quote {
     font-family: 'Fraunces', serif;
-    font-size: 22px;
     font-style: italic;
+    font-size: 15px;
     color: var(--cream);
+    border-top: 1px solid rgba(251,243,236,0.14);
+    padding-top: 16px;
+    line-height: 1.5;
   }
 
   /* --- Grid of people --- */
@@ -286,6 +286,46 @@
     letter-spacing: 0.06em;
   }
 
+  .status-select {
+    margin-top: 16px;
+    width: 100%;
+    border: none;
+    border-radius: 20px;
+    padding: 8px 14px;
+    font-family: 'Work Sans', sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    text-align: center;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+  }
+
+  .status-select.status-single {
+    background: rgba(110,155,122,0.15);
+    color: #4C7A5A;
+  }
+
+  .status-select.status-lost-cause {
+    background: rgba(138,123,133,0.18);
+    color: var(--muted);
+  }
+
+  .status-select.status-complicated {
+    background: rgba(217,164,65,0.18);
+    color: #9C7A2E;
+  }
+
+  .status-select.status-taken {
+    background: rgba(232,163,163,0.2);
+    color: #B85C5C;
+  }
+
+  .status-select.status-graduated {
+    background: rgba(201,161,93,0.2);
+    color: var(--gold);
+  }
+
   .emoji-panel {
     position: absolute;
     z-index: 10;
@@ -338,18 +378,10 @@
   <div class="subtitle">Tracking the group's dating year, one L (or dub) at a time</div>
   <div class="sync-status"><span class="sync-dot" id="syncDot"></span><span id="syncText">Synced</span></div>
 
-  <div class="countdown">
-    <div class="label">Next date</div>
-    <div id="countdownDisplay">
-      <div class="no-date">No date set yet</div>
-    </div>
-    <div class="set-date">
-      <label for="nextDateInput">Next date:</label>
-      <input type="datetime-local" id="nextDateInput">
-      <select id="nextDateWithSelect">
-        <option value=""></option>
-      </select>
-    </div>
+  <div class="summary-box">
+    <div class="ndb-title">2026 So Far</div>
+    <div class="summary-grid" id="summaryGrid"></div>
+    <div class="summary-quote" id="summaryQuote"></div>
   </div>
 
   <div class="grid" id="peopleGrid"></div>
@@ -385,7 +417,7 @@
   }
 
   async function fetchState() {
-    const activeIsField = document.activeElement && document.activeElement.tagName === 'INPUT';
+    const activeIsField = document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'SELECT');
     if (activeIsField || isEditingText) return; // never fetch mid-edit
 
     setSyncStatus('syncing');
@@ -399,8 +431,7 @@
       } else if ((remote.updatedAt || 0) > (state.updatedAt || 0)) {
         state = remote;
         renderGrid();
-        renderCountdown();
-        syncDateInput();
+        renderSummary();
       }
       setSyncStatus('ok');
     } catch (e) {
@@ -424,18 +455,74 @@
     }
   }
 
-  function syncDateInput() {
-    const dateInput = document.getElementById('nextDateInput');
-    if (document.activeElement !== dateInput) {
-      dateInput.value = state.nextDate || '';
-    }
-    const withSelect = document.getElementById('nextDateWithSelect');
-    if (document.activeElement !== withSelect) {
-      const names = state.people.map(p => p.name);
-      withSelect.innerHTML = '<option value=""></option>' +
-        names.map(n => `<option value="${n}">${n}</option>`).join('');
-      withSelect.value = state.nextDateWith || '';
-    }
+  const MOTIVATIONAL_QUOTES = [
+    "Every 'no' is just the universe clearing space for a better yes.",
+    "Rejection is just redirection — usually toward brunch with the group chat.",
+    "You miss 100% of the dates you don't show up to.",
+    "Standards are like rent — non-negotiable and worth paying for.",
+    "A bad date is just a good story that hasn't been told yet.",
+    "Swipe with confidence, text with mystery.",
+    "The right person won't require a highlight reel to be impressed.",
+    "Some of you need to log off and touch grass — lovingly.",
+    "Slow burns are still burns. Keep the flame going.",
+    "It's not delusion, it's optimism with a nice outfit on."
+  ];
+  const chosenQuote = MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)];
+
+  const STATUS_ICONS = {
+    'Single': '💚',
+    'Lost cause': '💀',
+    'Its complicated': '🌀',
+    'Taken': '❤️',
+    'Graduated': '🎓'
+  };
+
+  function renderSummary() {
+    const grid = document.getElementById('summaryGrid');
+
+    const totalDates = state.people.reduce((sum, p) => sum + (p.count || 0), 0);
+
+    const spaghettiTotal = state.people.reduce((sum, p) => {
+      const matches = (p.emoji || '').match(/🍝/g);
+      return sum + (matches ? matches.length : 0);
+    }, 0);
+
+    let topPerson = state.people[0];
+    state.people.forEach(p => { if (p.count > topPerson.count) topPerson = p; });
+    const topLabel = topPerson.count > 0 ? topPerson.name : '—';
+
+    const avg = state.people.length ? (totalDates / state.people.length).toFixed(1) : '0';
+
+    const statusCounts = {};
+    Object.keys(STATUS_ICONS).forEach(s => statusCounts[s] = 0);
+    state.people.forEach(p => {
+      const s = p.status || 'Single';
+      if (statusCounts[s] === undefined) statusCounts[s] = 0;
+      statusCounts[s]++;
+    });
+
+    const chips = Object.keys(STATUS_ICONS)
+      .filter(s => statusCounts[s] > 0)
+      .map(s => `<span class="status-chip">${STATUS_ICONS[s]} ${statusCounts[s]} ${s}</span>`)
+      .join('');
+
+    grid.innerHTML = `
+      <div class="stat"><div class="stat-num">${totalDates}</div><div class="stat-label">Total dates</div></div>
+      <div class="stat"><div class="stat-num">${spaghettiTotal}</div><div class="stat-label">🍝 Spaghetti count</div></div>
+      <div class="stat"><div class="stat-num">${topLabel}</div><div class="stat-label">Most active</div></div>
+      <div class="stat"><div class="stat-num">${avg}</div><div class="stat-label">Avg per person</div></div>
+      <div class="status-breakdown">${chips}</div>
+    `;
+
+    document.getElementById('summaryQuote').textContent = `"${chosenQuote}"`;
+  }
+
+  function statusClass(status) {
+    if (status === 'Lost cause') return 'lost-cause';
+    if (status === 'Its complicated') return 'complicated';
+    if (status === 'Taken') return 'taken';
+    if (status === 'Graduated') return 'graduated';
+    return 'single';
   }
 
   function renderGrid() {
@@ -465,6 +552,13 @@
           <button type="button" class="emoji-pick-btn" data-index="${i}">🙂</button>
         </div>
         <div class="emoji-caption">Vibe check</div>
+        <select class="status-select status-${statusClass(person.status)}" id="status-${i}">
+          <option value="Single" ${person.status === 'Single' || !person.status ? 'selected' : ''}>💚 Single</option>
+          <option value="Lost cause" ${person.status === 'Lost cause' ? 'selected' : ''}>💀 Lost cause</option>
+          <option value="Its complicated" ${person.status === 'Its complicated' ? 'selected' : ''}>🌀 Its complicated</option>
+          <option value="Taken" ${person.status === 'Taken' ? 'selected' : ''}>❤️ Taken</option>
+          <option value="Graduated" ${person.status === 'Graduated' ? 'selected' : ''}>🎓 Graduated</option>
+        </select>
       `;
 
       grid.appendChild(card);
@@ -480,6 +574,7 @@
         }
         pushState();
         renderGrid();
+        renderSummary();
       });
     });
 
@@ -489,7 +584,7 @@
       input.addEventListener('change', () => {
         state.people[i].name = input.value || defaultNames[i];
         pushState();
-        syncDateInput();
+        renderSummary();
       });
     });
 
@@ -499,6 +594,7 @@
       input.addEventListener('change', () => {
         state.people[i].emoji = input.value;
         pushState();
+        renderSummary();
       });
     });
 
@@ -507,6 +603,17 @@
         e.stopPropagation();
         const idx = parseInt(btn.dataset.index);
         toggleEmojiPanel(btn, idx);
+      });
+    });
+
+    grid.querySelectorAll('.status-select').forEach((select, i) => {
+      select.addEventListener('focus', () => isEditingText = true);
+      select.addEventListener('blur', () => isEditingText = false);
+      select.addEventListener('change', () => {
+        state.people[i].status = select.value;
+        pushState();
+        renderGrid();
+        renderSummary();
       });
     });
 
@@ -519,6 +626,7 @@
           state.people[i].photo = dataUrl;
           pushState();
           renderGrid();
+          renderSummary();
         });
       });
     });
@@ -543,6 +651,7 @@
         input.value = (input.value || '') + b.dataset.emoji;
         state.people[idx].emoji = input.value;
         pushState();
+        renderSummary();
         panel.remove();
         openPanel = null;
       });
@@ -552,6 +661,7 @@
       input.value = '';
       state.people[idx].emoji = '';
       pushState();
+      renderSummary();
       panel.remove();
       openPanel = null;
     });
@@ -600,65 +710,9 @@
     reader.readAsDataURL(file);
   }
 
-  function renderCountdown() {
-    const display = document.getElementById('countdownDisplay');
-    const withLabel = state.nextDateWith
-      ? `<div style="font-size:13px; color: var(--blush); margin-top: -6px; margin-bottom: 14px;">with ${state.nextDateWith}</div>`
-      : '';
-
-    if (!state.nextDate) {
-      display.innerHTML = `${withLabel}<div class="no-date">No date set yet</div>`;
-      return;
-    }
-
-    const target = new Date(state.nextDate).getTime();
-    const now = Date.now();
-    const diff = target - now;
-
-    if (diff <= 0) {
-      display.innerHTML = `<div class="no-date">It's date day! 🎉</div>${withLabel}`;
-      return;
-    }
-
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
-    const minutes = Math.floor((diff / (1000 * 60)) % 60);
-    const seconds = Math.floor((diff / 1000) % 60);
-
-    display.innerHTML = `
-      ${withLabel}
-      <div class="countdown-numbers">
-        <div><div class="num">${days}</div><div class="unit">Days</div></div>
-        <div><div class="num">${hours}</div><div class="unit">Hrs</div></div>
-        <div><div class="num">${minutes}</div><div class="unit">Min</div></div>
-        <div><div class="num">${seconds}</div><div class="unit">Sec</div></div>
-      </div>
-    `;
-  }
-
-  const dateInput = document.getElementById('nextDateInput');
-  dateInput.addEventListener('focus', () => isEditingText = true);
-  dateInput.addEventListener('blur', () => isEditingText = false);
-  dateInput.addEventListener('change', () => {
-    state.nextDate = dateInput.value;
-    pushState();
-    renderCountdown();
-  });
-
-  const withSelect = document.getElementById('nextDateWithSelect');
-  withSelect.addEventListener('focus', () => isEditingText = true);
-  withSelect.addEventListener('blur', () => isEditingText = false);
-  withSelect.addEventListener('change', () => {
-    state.nextDateWith = withSelect.value;
-    pushState();
-    renderCountdown();
-  });
-
   renderGrid();
-  renderCountdown();
-  syncDateInput();
+  renderSummary();
   fetchState();
-  setInterval(renderCountdown, 1000);
   setInterval(fetchState, POLL_MS);
 </script>
 
